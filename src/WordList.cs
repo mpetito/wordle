@@ -30,7 +30,6 @@ namespace Wordle
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
 
-
         public const int LetterBits = 5;
         public const int LetterMask = 0x1F;
         public const int MaskOffset = 32;
@@ -61,18 +60,9 @@ namespace Wordle
             return new string(word);
         }
 
-        public static char GetMatch(long answer, long guess, int index)
+        public static bool Contains(long word, char c)
         {
-            var offset = index * LetterBits;
-            var mask = LetterMask << offset;
-            var a = (answer & mask) >> offset;
-            var g = (guess & mask) >> offset;
-
-            if (a == g) return 'G';
-
-            if ((answer & (1L << ((int)g + MaskOffset))) != 0) return 'Y';
-
-            return 'B';
+            return (word & (CharToMask(c) << MaskOffset)) != 0;
         }
 
         public static int GetScore(long word)

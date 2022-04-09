@@ -1,79 +1,55 @@
-﻿namespace Wordle
+﻿namespace Wordle;
+
+public class SessionAnalyzer
 {
-    internal class SessionAnalyzer
+    public static WordList WordList { get; } = new WordList();
+
+    private readonly ISession[] _sessions;
+
+    public SessionAnalyzer(params ISession[] sessions)
     {
-        public static WordList WordList { get; } = new WordList();
+        _sessions = sessions;
+    }
 
-        private readonly Session[] _sessions;
+    public void GetPossibleAnswers(IProgress<(int Index, int Count, long Word)> progress)
+    {
+        var answers = new HashSet<long>(WordList.Answers);
 
-        public SessionAnalyzer(params Session[] sessions)
+        foreach (var session in _sessions)
         {
-            _sessions = sessions;
+            Console.WriteLine($"Working on {answers.Count:N0} answers...");
+
+            answers.IntersectWith(session.GetAnswers(answers));
         }
 
-        public IEnumerable<WordSequence> GetPossibleAnswers()
+        Console.WriteLine($"Found {answers.Count:N0} answers.");
+        Console.WriteLine();
+        Console.CursorVisible = false;
+
+        var options = answers
+            .AsParallel()
+            .AsUnordered()
+            .Select(guess =>
+            {
+                var patterns = answers.Select(a => Pattern.Create(a, guess)).DistinctBy(p => p.Value).ToList();
+                var score = patterns.Max(pattern => Session.Guess(pattern, guess).GetAnswers(answers).Count());
+                return (Guess: guess, Patterns: patterns.Count, Score: score);
+            })
+            .WithProgressReporting(answers.Count, progress, (o, index, count) => (index, count, o.Guess))
+            .OrderBy(o => o.Score)
+            .ThenBy(o => o.Patterns)
+            .Take(10)
+            .ToList();
+
+        Console.CursorVisible = true;
+
+        foreach (var (guess, patterns, score) in options)
         {
-            var answers = new HashSet<long>(_sessions.First().GetAnswers(WordList.Answers));
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.Write(WordList.FromLong(guess));
+            Console.ResetColor();
 
-            foreach (var session in _sessions.Skip(1))
-            {
-                Console.WriteLine($"Working on {answers.Count:N0} answers...");
-
-                answers.IntersectWith(session.GetAnswers(answers));
-            }
-
-            Console.WriteLine($"Found {answers.Count:N0} answers.");
-
-            var sequences = _sessions
-                .SelectMany(session => session.GetSequences(answers))
-                .Count();
-
-            Console.WriteLine($"Found {sequences:N0} sequences.");
-
-            return new WordSequence[0];
-        }
-
-        public class Session
-        {
-            private Pattern[] _steps;
-
-            public Session(params string[] steps)
-            {
-                _steps = steps.Select(step => new Pattern(step)).ToArray();
-            }
-
-            public ParallelQuery<long> GetAnswers(IEnumerable<long> answers)
-            {
-                return answers
-                    .Select(answer => new WordSequence(answer))
-                    .AsParallel()
-                    .AsUnordered()
-                    .Where(seq => GetSequences(seq, _steps.Length - 1).Any())
-                    .Select(seq => seq.Answer);
-            }
-
-            public ParallelQuery<WordSequence> GetSequences(IEnumerable<long> answers)
-            {
-                return answers
-                    .Select(answer => new WordSequence(answer))
-                    .AsParallel()
-                    .AsUnordered()
-                    .SelectMany(seq => GetSequences(seq, _steps.Length - 1));
-            }
-
-            private IEnumerable<WordSequence> GetSequences(WordSequence sequence, int stepIndex)
-            {
-                var step = _steps[stepIndex];
-                var answer = sequence.Answer;
-
-                var guesses = WordList
-                    .Where(word => !sequence.Has(word) && step.IsMatch(answer, word))
-                    .Select(word => sequence.Guess(word));
-
-                if (stepIndex == 0) return guesses;
-
-                return guesses.SelectMany(next => GetSequences(next, stepIndex - 1));
-            }
+            Console.WriteLine($" would reveal {patterns} patterns with score {score:0}.");
         }
     }
 }
